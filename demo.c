@@ -122,7 +122,7 @@ void first_fit(){
 
     fprintf(stderr, "Freeing the first one...\n");
     free(a);
-
+    fprintf(stderr, "first allocation %p points to %s\n", a, a);
     fprintf(stderr, "We don't need to free anything again. As long as we allocate smaller than 0x512, it will end up at %p\n", a);
 
     fprintf(stderr, "So, let's allocate 0x500 bytes\n");
@@ -137,12 +137,15 @@ void first_fit(){
 
 void uaf_test(){
     char *buf1 = malloc(16);
+    printf("buf1 addr: %p", buf1);
     char *buf2 = malloc(16);
     free(buf1);
 
     strcpy(buf1, "Hello"); // Use-after-free vulnerability
     printf("buf1: %s\n", buf1);
     char *buf3 = malloc(16);
+    printf("buf3 addr: %p", buf3);
+
     free(buf2);
     free(buf3);
 }

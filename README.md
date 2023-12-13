@@ -219,3 +219,77 @@ p + sizeof(metadata) + p->block_size + sizeof(BTag)
 
 
 调用程序不会看到这些值，它们是内存分配器实现内部的数据。举个例子，假设你的分配器被要求保留80个字节（malloc(80)），并且需要8个字节的内部头部数据。分配器需要找到至少88个字节的未分配空间。在更新堆数据之后，它会返回一个指向块的指针。然而，返回的指针指向可用空间，而不是内部数据！相反，我们会返回块的起始地址 + 8个字节。请记住，在实现中，指针算术依赖于类型。例如，p += 8 添加的是8个 sizeof(p) 的大小，而不一定是8个字节！
+
+
+### free之后发生了什么
+
+```c
+char *buf1 = malloc(16);
+printf("buf1 addr: %p", buf1);
+char *buf2 = malloc(16);
+free(buf1);
+
+strcpy(buf1, "Hello"); // Use-after-free vulnerability
+printf("buf1: %s\n", buf1);
+```
+
+上面的代码运行结果如下：
+```c
+buf1 addr: 0x555555559a20buf1: Hello
+```
+而另一个样例中：
+```c
+char* a = malloc(0x512);
+char* b = malloc(0x256);
+char* c;
+
+fprintf(stderr, "1st malloc(0x512): %p\n", a);
+fprintf(stderr, "2nd malloc(0x256): %p\n", b);
+fprintf(stderr, "we could continue mallocing here...\n");
+fprintf(stderr, "now let's put a string at a that we can read later \"this is A!\"\n");
+strcpy(a, "this is A!");
+fprintf(stderr, "first allocation %p points to %s\n", a, a);
+
+fprintf(stderr, "Freeing the first one...\n");
+free(a);
+fprintf(stderr, "first allocation %p points to %s\n", a, a);
+```
+
+结果如下：
+```c
+1st malloc(0x512): 0x5555555592a0
+2nd malloc(0x256): 0x5555555597c0
+we could continue mallocing here...
+now let's put a string at a that we can read later "this is A!"
+first allocation 0x5555555592a0 points to this is A!
+Freeing the first one...
+first allocation 0x5555555592a0 points to �,���
+
+```
+
+很明显，假设有buf1, 我们free之后buf1还是指向它原来分配的空间，只不过这块指向的地方在free后内容被破坏了，不再有意义，因此我们如果在free之后立刻打印buf1得到的很可能是乱码，但是可以通过赋值继续访问
+
+同样的，如果分配了buf3也指向了这个地址，也是可以通过buf1来访问的
+```c
+free(a);
+fprintf(stderr, "first allocation %p points to %s\n", a, a);
+fprintf(stderr, "We don't need to free anything again. As long as we allocate smaller than 0x512, it will end up at %p\n", a);
+
+fprintf(stderr, "So, let's allocate 0x500 bytes\n");
+c = malloc(0x500);
+fprintf(stderr, "3rd malloc(0x500): %p\n", c);
+fprintf(stderr, "And put a different string here, \"this is C!\"\n");
+strcpy(c, "this is C!");
+fprintf(stderr, "3rd allocation %p points to %s\n", c, c);
+fprintf(stderr, "first allocation %p points to %s\n", a, a);
+```
+
+运行结果：
+```c
+3rd malloc(0x500): 0x5555555592a0
+And put a different string here, "this is C!"
+3rd allocation 0x5555555592a0 points to this is C!
+first allocation 0x5555555592a0 points to this is C!
+
+```
+
